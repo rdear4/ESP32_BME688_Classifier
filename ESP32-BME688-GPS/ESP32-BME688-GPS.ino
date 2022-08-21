@@ -4,6 +4,8 @@
 #define USE_EEPROM
 #endif
 
+/*************************BME688 Setup*******************************************/
+
 #include <bsec2.h>
 
 #include "Trained_Model.h"
@@ -27,13 +29,30 @@ static uint8_t bsecState[BSEC_MAX_STATE_BLOB_SIZE];
 /* Gas estimate names will be according to the configuration classes used */
 const String gasName[] = { "Air", "Coffee"};
 
+/*********************************WiFi Setup******************************************/
+
 #include <WiFi.h>
 #include <HTTPClient.h>
  
-const char* ssid = "WraughnsWrouter";
-const char* password =  "Nibble40101wi";
+const char* ssid = "";
+const char* password =  "";
 
 IPAddress ip;
+
+/*******************************GPS Setup********************************************/
+
+#include <Adafruit_GPS.h>
+Adafruit_GPS GPS(&Wire);
+
+#define GPS_UPDATE_DELAY 60000 //One Minute
+long lastGPSUpdate = -2000;
+String gpsLatitude = "0.000";
+String gpsLongitude = "0.000";
+
+// Set GPSECHO to 'false' to turn off echoing the GPS data to the Serial console
+// Set to 'true' if you want to debug and listen to the raw GPS sentences
+#define GPSECHO false
+
 
 void setup() {
 
@@ -112,16 +131,36 @@ void setup() {
             + String(envSensor.version.major_bugfix) + "." \
             + String(envSensor.version.minor_bugfix));
 
+  GPS.begin(0x10);  // The I2C address to use is 0x10
+  // uncomment this line to turn on RMC (recommended minimum) and GGA (fix data) including altitude
+  GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
+  // uncomment this line to turn on only the "minimum recommended" data
+  //GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCONLY);
+  // For parsing data, we don't suggest using anything but either RMC only or RMC+GGA since
+  // the parser doesn't care about other sentences at this time
+  // Set the update rate
+  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ); // 1 Hz update rate
+  // For the parsing code to work nicely and have time to sort thru the data, and
+  // print it out we don't suggest using anything higher than 1 Hz
+
+  // Request updates on antenna status, comment out to keep quiet
+  GPS.sendCommand(PGCMD_ANTENNA);
+  // Ask for firmware version
+  GPS.println(PMTK_Q_RELEASE);
+
+  Serial.println(F("Initialized"));
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
+  updateGPS();
 
   if (!envSensor.run()) {
     checkBsecStatus (envSensor);
   }
 
 }
+
 
 //sendDataToServer(sensorHumidity, sensorTemperature, sensorPressure, sensorGas, sensorGasIndex, sensorCompensatedTemp, sensorCompensatedHumidity, sensorProability, sensorClassification);
 void sendDataToServer(String sensorHumidity, String sensorTemperature, String sensorPressure, String sensorGas, String sensorGasIndex, String sensorCompensatedTemperature, String sensorCompensatedHumidity, String sensorProbability, String sensorClassification) {
@@ -146,6 +185,8 @@ void sendDataToServer(String sensorHumidity, String sensorTemperature, String se
   PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"CompensatedHuidity\"" + "\r\n\r\n" + sensorCompensatedHumidity + "\r\n";
   PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Probability\"" + "\r\n\r\n" + sensorProbability + "\r\n";
   PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Classification\"" + "\r\n\r\n" + sensorClassification + "\r\n";
+  PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Latitude\"" + "\r\n\r\n" + gpsLatitude + "\r\n";
+  PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Longitude\"" + "\r\n\r\n" + gpsLongitude + "\r\n";
   
   String tail = "\r\n--" + bound + "--\r\n";
     
@@ -159,8 +200,15 @@ void classifyData() {
   
 }
 
-void getGPSCoords() {
+void updateGPS() {
 
+  if (millis() - lastGPSUpdate > GPS_UPDATE_DELAY) {
+
+    if (GPS.fix) {
+      gpsLatitude = String(GPS.latitudeDegrees, 4);
+      gpsLongitude = String(GPS.longitudeDegrees, 4);
+    }
+  }
   
 }
 
