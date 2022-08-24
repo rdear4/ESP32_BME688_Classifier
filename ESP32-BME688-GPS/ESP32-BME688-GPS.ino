@@ -185,7 +185,7 @@ void sendDataToServer(String sensorHumidity, String sensorTemperature, String se
 
   HTTPClient httpClient;
 
-  String serverPath1 = "https://script.google.com/macros/s/AKfycbwcNoQVO6CNp14xyarB5DzSb3t_J-cuTK_ZDjMyZQe6w9T6KOsAowWzCn-Zarh8PXBoiQ/exec";
+  String serverPath1 = "https://script.google.com/macros/s/AKfycbx7i40saG7vbV7zYthqZebcaA914PTAKUmYwfTuZYaIL0hlnNu3y2KL4r6psboTvo1U2A/exec";
   String serverName1 = "script.google.com";
   
   httpClient.begin(serverPath1); //Specify destination for HTTP request
