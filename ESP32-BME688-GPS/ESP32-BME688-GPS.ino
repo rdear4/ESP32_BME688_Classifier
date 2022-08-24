@@ -34,8 +34,8 @@ const String gasName[] = { "Air", "Coffee"};
 #include <WiFi.h>
 #include <HTTPClient.h>
  
-const char* ssid = "";
-const char* password =  "";
+const char* ssid = "2GIRLS1WIFI";
+const char* password =  "jetisbald";
 
 IPAddress ip;
 
@@ -44,20 +44,21 @@ IPAddress ip;
 #include <Adafruit_GPS.h>
 Adafruit_GPS GPS(&Wire);
 
-#define GPS_UPDATE_DELAY 60000 //One Minute
+#define GPS_UPDATE_DELAY 5000 //One Minute
 long lastGPSUpdate = -2000;
 String gpsLatitude = "0.000";
 String gpsLongitude = "0.000";
 
 // Set GPSECHO to 'false' to turn off echoing the GPS data to the Serial console
 // Set to 'true' if you want to debug and listen to the raw GPS sentences
-#define GPSECHO false
+#define GPSECHO true
 
 
 void setup() {
 
   //Setup Serial
   Serial.begin(115200);
+  Wire.begin();
   delay(4000);   //Delay needed before calling the WiFi.begin
 
   //Setup Wifi
@@ -74,6 +75,7 @@ void setup() {
   Serial.println(ip);
 
   /* Desired subscription list of BSEC2 outputs */
+
     bsecSensor sensorList[] = {
             BSEC_OUTPUT_RAW_TEMPERATURE,
             BSEC_OUTPUT_RAW_PRESSURE,
@@ -83,46 +85,44 @@ void setup() {
             BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE,
             BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY,
             BSEC_OUTPUT_GAS_ESTIMATE_1,
-            BSEC_OUTPUT_GAS_ESTIMATE_2,
-            BSEC_OUTPUT_GAS_ESTIMATE_3,
-            BSEC_OUTPUT_GAS_ESTIMATE_4
+            BSEC_OUTPUT_GAS_ESTIMATE_2
     };
 
     Serial.begin(115200);
   #ifdef USE_EEPROM
     EEPROM.begin(BSEC_MAX_STATE_BLOB_SIZE + 1);
   #endif
-    Wire.begin();
+    
     pinMode(PANIC_LED, OUTPUT);
 
-    /* Valid for boards with USB-COM. Wait until the port is open */
+   
     while (!Serial) delay(10);
    
-    /* Initialize the library and interfaces */
-    if (!envSensor.begin(BME68X_I2C_ADDR_LOW, Wire))
+
+    if (!envSensor.begin(0x77, Wire))
     {
         checkBsecStatus(envSensor);
     }
 
-    /* Load the configuration string that stores information on how to classify the detected gas */
+    
     if (!envSensor.setConfig(Trained_Model_config))
     {
         checkBsecStatus (envSensor);
     }
 
-    /* Copy state from the EEPROM to the algorithm */
+ 
     if (!loadState(envSensor))
     {
         checkBsecStatus (envSensor);
     }
 
-    /* Subscribe for the desired BSEC2 outputs */
+
     if (!envSensor.updateSubscription(sensorList, ARRAY_LEN(sensorList), BSEC_SAMPLE_RATE_HIGH_PERFORMANCE))
     {
         checkBsecStatus (envSensor);
     }
 
-    /* Whenever new data is available call the newDataCallback function */
+ 
     envSensor.attachCallback(newDataCallback);
 
     Serial.println("\nBSEC library version " + \
@@ -131,7 +131,11 @@ void setup() {
             + String(envSensor.version.major_bugfix) + "." \
             + String(envSensor.version.minor_bugfix));
 
-  GPS.begin(0x10);  // The I2C address to use is 0x10
+  if (!GPS.begin(0x10)) {
+    Serial.println("Unable to connect to GPS");  // The I2C address to use is 0x10
+  } else {
+    Serial.println("Connected to GPS module");
+  }
   // uncomment this line to turn on RMC (recommended minimum) and GGA (fix data) including altitude
   GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
   // uncomment this line to turn on only the "minimum recommended" data
@@ -167,7 +171,7 @@ void sendDataToServer(String sensorHumidity, String sensorTemperature, String se
 
   HTTPClient httpClient;
 
-  String serverPath1 = "https://script.google.com/macros/s/AKfycbyuE7DXItweQFuHAmhHsoB6mW7cTBMSyqv18lMC4XK1oS4Bd81Z56wxH01UR6srnL_5/exec";
+  String serverPath1 = "https://script.google.com/macros/s/AKfycbwcNoQVO6CNp14xyarB5DzSb3t_J-cuTK_ZDjMyZQe6w9T6KOsAowWzCn-Zarh8PXBoiQ/exec";
   String serverName1 = "script.google.com";
   
   httpClient.begin(serverPath1); //Specify destination for HTTP request
@@ -202,11 +206,25 @@ void classifyData() {
 
 void updateGPS() {
 
+  
   if (millis() - lastGPSUpdate > GPS_UPDATE_DELAY) {
+    if (GPS.newNMEAreceived()) {
 
+    Serial.println(GPS.lastNMEA());
+    if (!GPS.parse(GPS.lastNMEA())) return;
+  }
+  
+    lastGPSUpdate = millis();
     if (GPS.fix) {
+      Serial.println("Got a fix");
+      Serial.print("Satellites: ");
+      Serial.println(String(GPS.satellites));
       gpsLatitude = String(GPS.latitudeDegrees, 4);
       gpsLongitude = String(GPS.longitudeDegrees, 4);
+    } else {
+      Serial.println("No fix");
+      Serial.print("Satellites: ");
+      Serial.println(String(GPS.satellites));
     }
   }
   
@@ -290,8 +308,6 @@ void newDataCallback(const bme68xData data, const bsecOutputs outputs, Bsec2 bse
                 break;
             case BSEC_OUTPUT_GAS_ESTIMATE_1:
             case BSEC_OUTPUT_GAS_ESTIMATE_2:
-            case BSEC_OUTPUT_GAS_ESTIMATE_3:
-            case BSEC_OUTPUT_GAS_ESTIMATE_4:
                 if((int)(output.signal * 10000.0f) > 0) /* Ensure that there is a valid value xx.xx% */
                 {
                   sensorClassification = gasName[(int) (output.sensor_id - BSEC_OUTPUT_GAS_ESTIMATE_1)];
@@ -307,7 +323,7 @@ void newDataCallback(const bme68xData data, const bsecOutputs outputs, Bsec2 bse
         }
     }
 
-    sendDataToServer(sensorHumidity, sensorTemperature, sensorPressure, sensorGas, sensorGasIndex, sensorCompensatedTemp, sensorCompensatedHumidity, sensorProbability, sensorClassification);
+    //sendDataToServer(sensorHumidity, sensorTemperature, sensorPressure, sensorGas, sensorGasIndex, sensorCompensatedTemp, sensorCompensatedHumidity, sensorProbability, sensorClassification);
     updateBsecState(envSensor);
 }
 
