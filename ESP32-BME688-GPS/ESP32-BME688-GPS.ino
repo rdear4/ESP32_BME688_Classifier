@@ -4,6 +4,13 @@
 #define USE_EEPROM
 #endif
 
+
+/************************* Battery Monitoring************************************/
+
+#define VBATTPIN A13
+
+float battery_voltage = 0.0;
+
 /*************************BME688 Setup*******************************************/
 
 #include <bsec2.h>
@@ -159,12 +166,19 @@ void loop() {
   // put your main code here, to run repeatedly:
   updateGPS();
 
+  updateBatteryVoltage();
+
   if (!envSensor.run()) {
     checkBsecStatus (envSensor);
   }
 
 }
 
+void updateBatteryVoltage() {
+
+   battery_voltage = analogRead(VBATTPIN) * 2 * 3.3 / 1024;
+   
+}
 
 //sendDataToServer(sensorHumidity, sensorTemperature, sensorPressure, sensorGas, sensorGasIndex, sensorCompensatedTemp, sensorCompensatedHumidity, sensorProability, sensorClassification);
 void sendDataToServer(String sensorHumidity, String sensorTemperature, String sensorPressure, String sensorGas, String sensorGasIndex, String sensorCompensatedTemperature, String sensorCompensatedHumidity, String sensorProbability, String sensorClassification) {
@@ -186,20 +200,16 @@ void sendDataToServer(String sensorHumidity, String sensorTemperature, String se
   PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Gas\"" + "\r\n\r\n" + sensorGas + "\r\n";
   PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"GasIndex\"" + "\r\n\r\n" + sensorGasIndex + "\r\n";
   PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"CompensatedTemperature\"" + "\r\n\r\n" + sensorCompensatedTemperature + "\r\n";
-  PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"CompensatedHuidity\"" + "\r\n\r\n" + sensorCompensatedHumidity + "\r\n";
-  PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Probability\"" + "\r\n\r\n" + sensorProbability + "\r\n";
-  PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Classification\"" + "\r\n\r\n" + sensorClassification + "\r\n";
+  PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"CompensatedHumidity\"" + "\r\n\r\n" + sensorCompensatedHumidity + "\r\n";
   PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Latitude\"" + "\r\n\r\n" + gpsLatitude + "\r\n";
   PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Longitude\"" + "\r\n\r\n" + gpsLongitude + "\r\n";
+  PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Classification\"" + "\r\n\r\n" + sensorClassification + "\r\n";
+  PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Probability\"" + "\r\n\r\n" + sensorProbability + "\r\n";
+  PostData += "--" + bound + "\r\nContent-Disposition: form-data; name=\"Battery Voltage\"" + "\r\n\r\n" + String(battery_voltage) + "\r\n";
   
   String tail = "\r\n--" + bound + "--\r\n";
     
   int httpResponseCode = httpClient.POST(PostData + tail);
-
-  
-}
-
-void classifyData() {
 
   
 }
@@ -269,7 +279,7 @@ void newDataCallback(const bme68xData data, const bsecOutputs outputs, Bsec2 bse
     String sensorGasIndex = "";
     String sensorCompensatedTemp = "";
     String sensorCompensatedHumidity = "";
-    String sensorProbability = "";
+    float  sensorProbability = 0.0;
     String sensorClassification = "";
 
     Serial.println("BSEC outputs:\n\ttimestamp = " + String((int) (outputs.output[0].time_stamp / INT64_C(1000000))));
@@ -310,8 +320,13 @@ void newDataCallback(const bme68xData data, const bsecOutputs outputs, Bsec2 bse
             case BSEC_OUTPUT_GAS_ESTIMATE_2:
                 if((int)(output.signal * 10000.0f) > 0) /* Ensure that there is a valid value xx.xx% */
                 {
-                  sensorClassification = gasName[(int) (output.sensor_id - BSEC_OUTPUT_GAS_ESTIMATE_1)];
-                  sensorProbability = String(output.signal * 100);
+                  
+                  if ((output.signal * 100) > sensorProbability) {
+                    
+                      sensorClassification = String(gasName[(int) (output.sensor_id - BSEC_OUTPUT_GAS_ESTIMATE_1)]);
+                      sensorProbability = output.signal * 100;
+                      
+                  }
                   
                     Serial.println("\t" + \
                       gasName[(int) (output.sensor_id - BSEC_OUTPUT_GAS_ESTIMATE_1)] + \
@@ -323,7 +338,17 @@ void newDataCallback(const bme68xData data, const bsecOutputs outputs, Bsec2 bse
         }
     }
 
-    //sendDataToServer(sensorHumidity, sensorTemperature, sensorPressure, sensorGas, sensorGasIndex, sensorCompensatedTemp, sensorCompensatedHumidity, sensorProbability, sensorClassification);
+    if (sensorClassification != "") {
+
+      Serial.print("Prob: ");
+      Serial.println(sensorProbability);
+      Serial.print("Classification: ");
+      Serial.println(sensorClassification);
+      
+      sendDataToServer(sensorHumidity, sensorTemperature, sensorPressure, sensorGas, sensorGasIndex, sensorCompensatedTemp, sensorCompensatedHumidity, String(sensorProbability), sensorClassification);
+        
+    }
+    
     updateBsecState(envSensor);
 }
 
